@@ -18,8 +18,8 @@ def gen_data(mean: _pair,
 
 
 if __name__ == '__main__':
-    clsA = gen_data(mean=[5, 10], cov=[[30, 10], [10, 700]])
-    clsB = gen_data(mean=[-30, -20], cov=[[25, -20], [-20, 700]])
+    clsA = gen_data(mean=[3, 3], cov=[[10, 1], [1, 0.7]])
+    clsB = gen_data(mean=[-3, -3], cov=[[10, 1], [1, 0.7]])
 
     # put all the samples in one DataFrame
     clsA['cls'] = 'A'

@@ -1,4 +1,4 @@
-from typing import Callable, Tuple
+from typing import Callable
 
 import numpy as np
 from numpy.random import default_rng
@@ -12,10 +12,22 @@ class Perceptron:
         # initialize weights randomly
         # bias trick, starting theta is 0
         self._w = np.append(rand_gen.standard_normal(dims), 0)
+        self._epochs = 0
 
-    def training_step(self,
-                      data: np.ndarray,
-                      eta: float = 1.0) -> Tuple[np.ndarray, int]:
+    @staticmethod
+    def _activation_function(y_prima: np.ndarray) -> int:
+        return 1 if np.greater(y_prima, 0) else 0
+
+    @staticmethod
+    def _error(y: np.ndarray, y_prima: np.ndarray, target: np.ndarray):
+        return target - y
+
+    def epoch(self,
+              data: np.ndarray,
+              eta: float = 1.0,
+              callback: Callable[[int, np.ndarray, np.ndarray, int],
+                                 None] = lambda e, w, dw, m: None) \
+            -> bool:
         # last element of each sample should be the class
         assert data.shape[1] == self._d + 1
 
@@ -30,25 +42,27 @@ class Perceptron:
         misses = 0
 
         for x in samples:
-            target = x[-1]
+            x, target = np.split(x, [-1])
             # bias trick
-            x = np.append(x[:-1], 1)
+            x = np.append(x, 1)
 
             # threshold
-            y = 1 if np.dot(self._w, x) > 0 else 0
+            y_prima = np.dot(self._w.T, x)
+            y = self._activation_function(y_prima)
 
             # learning step
             if not np.isclose(y, target):
                 misses += 1
-                error = target - y
+                error = self._error(y, y_prima, target)
                 etaX = (error * eta) * x
-                dw = np.add(dw, etaX)
+                dw = dw + etaX
 
         # finally, add dw to the weight vector
-        self._w = np.add(self._w, dw)
+        self._w = self._w + dw
+        self._epochs += 1
 
-        # return the dw and misses to determine when to stop training
-        return dw, misses
+        callback(self._epochs, self._w, dw, misses)
+        return misses == 0  # finishing condition
 
     def train(self,
               data: np.ndarray,
@@ -71,13 +85,39 @@ class Perceptron:
         """
         # last element of each sample should be the class
         assert data.shape[1] == self._d + 1
-
-        epoch = 0
         while True:
-            epoch += 1
             eta = eta0  # / (epoch * 0.01)  # TODO: parameterize hyperparameter?
-            dw, misses = self.training_step(data, eta=eta)
-            epoch_cb(epoch, self._w, dw, misses)
-
-            if misses == 0:
+            if self.epoch(data, eta=eta, callback=epoch_cb):
                 return
+
+    def test(self, data: np.ndarray):
+        # last element of each sample should be the class
+        assert data.shape[1] == self._d + 1
+
+        # shuffle data
+        samples = data.copy()
+        rand_gen.shuffle(samples)
+
+        for x in samples:
+            x, target = np.split(x, [-1])
+            # bias trick
+            x = np.append(x, 1)
+
+            # threshold
+            y_prima = np.dot(self._w.T, x)
+            y = self._activation_function(y_prima)
+            try:
+                assert np.isclose(y, target)
+            except AssertionError:
+                print(f'Classification error for input {x}: '
+                      f'expected {target}, got {y}!')
+
+
+class DeltaPerceptron(Perceptron):
+    @staticmethod
+    def _activation_function(y_prima: np.ndarray) -> int:
+        return 1 if np.greater(y_prima, 0) else -1
+
+    @staticmethod
+    def _error(y: np.ndarray, y_prima: np.ndarray, target: np.ndarray):
+        return target - y_prima
