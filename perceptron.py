@@ -1,4 +1,4 @@
-from typing import Callable
+from typing import Any, Callable, Tuple
 
 import numpy as np
 from numpy.random import default_rng
@@ -6,69 +6,68 @@ from numpy.random import default_rng
 rand_gen = default_rng()
 
 
+# noinspection PyAttributeOutsideInit
 class Perceptron:
     def __init__(self, dims: int):
         self._d = dims
+        self.reset()
+
+    @property
+    def weights(self) -> np.ndarray:
+        return self._w.copy()
+
+    @property
+    def epochs(self) -> int:
+        return self._epochs
+
+    def reset(self):
         # initialize weights randomly
         # bias trick, starting theta is 0
-        self._w = np.append(rand_gen.standard_normal(dims), 0)
+        self._w = np.append(rand_gen.standard_normal(self._d), 0)
         self._epochs = 0
 
     @staticmethod
-    def _activation_function(y_prima: np.ndarray) -> int:
-        return 1 if np.greater(y_prima, 0) else 0
+    def _learning_step(X, T, Y_prima, eta) -> Tuple[np.ndarray, int]:
+        Y = np.array([1 if y > 0 else 0 for y in Y_prima])
+        E = T - Y
+        dW = eta * np.dot(X, E)
+        return dW, np.count_nonzero(E)
 
-    @staticmethod
-    def _error(y: np.ndarray, y_prima: np.ndarray, target: np.ndarray):
-        return target - y
-
-    def epoch(self,
-              data: np.ndarray,
-              eta: float = 1.0,
-              callback: Callable[[int, np.ndarray, np.ndarray, int],
-                                 None] = lambda e, w, dw, m: None) \
+    def _batch_epoch(self,
+                     data: np.ndarray,
+                     eta: float = 1.0,
+                     callback: Callable[[int, np.ndarray, np.ndarray, int],
+                                  None] = lambda e, w, dw, m: None) \
             -> bool:
-        # last element of each sample should be the class
-        assert data.shape[1] == self._d + 1
 
         # shuffle data
         samples = data.copy()
         rand_gen.shuffle(samples)
 
-        # deltaW
-        dw = np.zeros(shape=self._w.shape)
+        # segment data into Matrices
+        T = samples[:, -1]
+        # add a constant 1 to the input for the bias trick
+        # X is transposed so every column becomes an input
+        X = np.append(samples[:, :-1],
+                      np.atleast_2d(np.ones(T.shape[0])).T,
+                      axis=1).T
 
-        # count misclassified
-        misses = 0
+        # Y' = WX
+        Y_prima = np.dot(self._w, X)
+        dW, misses = self._learning_step(X, T, Y_prima, eta)
 
-        for x in samples:
-            x, target = np.split(x, [-1])
-            # bias trick
-            x = np.append(x, 1)
-
-            # threshold
-            y_prima = np.dot(self._w.T, x)
-            y = self._activation_function(y_prima)
-
-            # learning step
-            if not np.isclose(y, target):
-                misses += 1
-                error = self._error(y, y_prima, target)
-                etaX = (error * eta) * x
-                dw = dw + etaX
-
-        # finally, add dw to the weight vector
-        self._w = self._w + dw
+        # update weights
+        self._w += dW
         self._epochs += 1
 
-        callback(self._epochs, self._w, dw, misses)
+        callback(self._epochs, self._w, dW, misses)
         return misses == 0  # finishing condition
 
     def train(self,
               data: np.ndarray,
               eta0: float = 1.0,
               epoch_cb: Callable[[int, np.ndarray, np.ndarray, int],
-                                 None] = lambda e, w, dw: None):
+                                 None] = lambda e, w, dw, m: None):
         """
         Train this perceptron on the given input data.
 
@@ -83,41 +82,20 @@ class Perceptron:
         dW and the number of classification misses. Useful for plotting the
         evolution of the decision boundary.
         """
-        # last element of each sample should be the class
+
+        # columns == dimensions + 1 for bias trick
         assert data.shape[1] == self._d + 1
+
         while True:
             eta = eta0  # / (epoch * 0.01)  # TODO: parameterize hyperparameter?
-            if self.epoch(data, eta=eta, callback=epoch_cb):
+            if self._batch_epoch(data, eta=eta, callback=epoch_cb):
                 return
-
-    def test(self, data: np.ndarray):
-        # last element of each sample should be the class
-        assert data.shape[1] == self._d + 1
-
-        # shuffle data
-        samples = data.copy()
-        rand_gen.shuffle(samples)
-
-        for x in samples:
-            x, target = np.split(x, [-1])
-            # bias trick
-            x = np.append(x, 1)
-
-            # threshold
-            y_prima = np.dot(self._w.T, x)
-            y = self._activation_function(y_prima)
-            try:
-                assert np.isclose(y, target)
-            except AssertionError:
-                print(f'Classification error for input {x}: '
-                      f'expected {target}, got {y}!')
 
 
 class DeltaPerceptron(Perceptron):
     @staticmethod
-    def _activation_function(y_prima: np.ndarray) -> int:
-        return 1 if np.greater(y_prima, 0) else -1
-
-    @staticmethod
-    def _error(y: np.ndarray, y_prima: np.ndarray, target: np.ndarray):
-        return target - y_prima
+    def _learning_step(X, T, Y_prima, eta) -> Tuple[np.ndarray, int]:
+        Y = np.array([1 if y > 0 else -1 for y in Y_prima])
+        E = T - Y
+        dW = eta * np.dot(T - Y_prima, X.T)
+        return dW, np.count_nonzero(E)
