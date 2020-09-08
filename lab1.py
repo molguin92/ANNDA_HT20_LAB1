@@ -19,7 +19,7 @@ import pandas as pd
 from matplotlib import pyplot as plt
 import pylab
 import seaborn as sns
-sns.set(context='notebook', palette='Dark2', font_scale=1.0)  # for plots
+sns.set(context='notebook', palette='Dark2', font_scale=.75)  # for plots
 pylab.rcParams['figure.dpi'] = 150
 
 # +
@@ -39,35 +39,35 @@ def plot_decision_boundary(lx, rx, weights, ax, style, label):
     x1 = np.array([lx, rx])
     x2 = (-1 * ((weights[0] * x1) + weights[2])) / weights[1]
     ax.plot(x1, x2, style, label=label)
-    
-# callback functions for epochs, to store accuracy and plot it
-p_acc = [0]
-dp_acc = [0]
-n = data.shape[0]
-
-def perceptron_epoch(epoch, weights, dW, misses):
-    p_acc.append((n - misses) / n)
-
-def deltaperceptron_epoch(epoch, weights, dW, misses):
-    dp_acc.append((n - misses) / n)
 
 # perceptrons
 p = Perceptron(dims=2)
 dp = DeltaPerceptron(dims=2)
+p_seq = Perceptron(dims=2)
+dp_seq = DeltaPerceptron(dims=2)
 
-# prepare data for training perceptron
+# prepare data for training perceptrons
 p_data = data.copy()
 p_data['cls'] = p_data['cls'].apply(lambda c: 0 if c == 'A' else 1).astype('category')
 
-# prepare data for training deltaperceptron
+# prepare data for training deltaperceptrons
 # delta rule uses symmetric target values
 dp_data = data.copy()
 dp_data['cls'] = dp_data['cls'].apply(lambda c: -1 if c == 'A' else 1).astype('category')
 
+# callback functions for epochs, to store accuracy and plot it
+p_acc = [0]
+dp_acc = [0]
+p_seq_acc = [0]
+dp_seq_acc = [0]
+n = data.shape[0]
+
 # train (batch)
 eta0 = 1e-5
-p.train(p_data.to_numpy(), eta0=eta0, epoch_cb=perceptron_epoch)
-dp.train(dp_data.to_numpy(), eta0=eta0, epoch_cb=deltaperceptron_epoch)
+p.train(p_data.to_numpy(), eta0=eta0, epoch_cb=lambda e, w, m: p_acc.append((n - m) / n))
+dp.train(dp_data.to_numpy(), eta0=eta0, epoch_cb=lambda e, w, m: dp_acc.append((n - m) / n))
+p_seq.train(p_data.to_numpy(), eta0=eta0, batch=False, epoch_cb=lambda e, w, m: p_seq_acc.append((n - m) / n))
+dp_seq.train(dp_data.to_numpy(), eta0=10, batch=False, epoch_cb=lambda e, w, m: dp_seq_acc.append((n - m) / n))
 
 # plotting
 pad = 10
@@ -81,16 +81,21 @@ max_y = data['x2'].max() + pad
 fig, ax0 = plt.subplots()
 ax0.set_title('Decision boundaries')
 sns.scatterplot(x='x1', y='x2', hue=data['cls'].tolist(), data=data, ax=ax0)
-plot_decision_boundary(min_x, max_x, p.weights, ax0, 'r-', 'Perceptron learning')
-plot_decision_boundary(min_x, max_x, dp.weights, ax0, 'g-', 'Delta rule')
+plot_decision_boundary(min_x, max_x, p.weights, ax0, 'r-', 'Perceptron learning (Batch)')
+plot_decision_boundary(min_x, max_x, dp.weights, ax0, 'g-', 'Delta rule (Batch)')
+plot_decision_boundary(min_x, max_x, p_seq.weights, ax0, 'r--', 'Perceptron learning (Sequential)')
+plot_decision_boundary(min_x, max_x, dp_seq.weights, ax0, 'g--', 'Delta rule (Sequential)')
 ax0.legend()
 plt.show()
 
 fig, ax1 = plt.subplots()
 ax1.set_title('Accuracy over time (epochs)')
-ax1.plot(range(0, p.epochs + 1), p_acc, 'r-', label='Perceptron learning')
-ax1.plot(range(0, dp.epochs + 1), dp_acc, 'g-', label='Delta rule')
+ax1.plot(range(0, p.epochs + 1), p_acc, 'r-', label='Perceptron learning (Batch)')
+ax1.plot(range(0, dp.epochs + 1), dp_acc, 'g-', label='Delta rule (Batch)')
+ax1.plot(range(0, p_seq.epochs + 1), p_seq_acc, 'r--', label='Perceptron learning (Sequential)')
+ax1.plot(range(0, dp_seq.epochs + 1), dp_seq_acc, 'g--', label='Delta rule (Sequential)')
 ax1.set_xlabel('Epochs')
 ax1.set_ylabel('Accuracy')
 ax1.legend()
+ax1.set_xscale('symlog')
 plt.show()
