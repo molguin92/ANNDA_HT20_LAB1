@@ -7,3 +7,5 @@ jupyter
 jupyterlab
 jupytext
 notebook
+ipympl
+scikit-learn

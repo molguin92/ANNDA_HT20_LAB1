@@ -29,4 +29,20 @@ if __name__ == '__main__':
     data['cls'] = data['cls'].astype('category')
 
     # save data
-    data.to_csv('./data/samples.csv', index=False)
+    data.to_csv('./data/linsep.csv', index=False)
+
+    # non-linearly separatable data
+    clsA = gen_data(mean=[0, 0], cov=[[5, 1],
+                                      [1, 0.7]])
+    clsB = gen_data(mean=[3, 3], cov=[[10, 1],
+                                      [1, 0.7]])
+
+    # put all the samples in one DataFrame
+    clsA['cls'] = 'A'
+    clsB['cls'] = 'B'
+
+    data = pd.concat((clsA, clsB))
+    data['cls'] = data['cls'].astype('category')
+
+    # save data
+    data.to_csv('./data/non_linsep.csv', index=False)

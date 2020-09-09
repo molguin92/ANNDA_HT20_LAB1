@@ -24,7 +24,7 @@ pylab.rcParams['figure.dpi'] = 150
 
 # +
 # load and visualize dataset
-data = pd.read_csv('data/samples.csv')
+data = pd.read_csv('data/linsep.csv')
 
 fig, ax = plt.subplots()
 sns.scatterplot(x='x1', y='x2', hue=data['cls'].tolist(), data=data, ax=ax)
@@ -32,7 +32,7 @@ plt.show()
 
 # +
 # import and instantiate Perceptron implementations
-from perceptron import Perceptron, DeltaPerceptron
+from slp import Perceptron, DeltaPerceptron
 from typing import Optional, Tuple
     
 class Plotter:

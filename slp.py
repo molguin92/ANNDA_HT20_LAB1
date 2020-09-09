@@ -6,6 +6,25 @@ from numpy.random import default_rng
 rand_gen = default_rng()
 
 
+def prepare_data(data: np.ndarray, bias: bool = True) \
+        -> Tuple[np.ndarray, np.ndarray]:
+    # shuffle data
+    samples = data.copy()
+    rand_gen.shuffle(samples)
+
+    # segment data into Matrices
+    T = samples[:, -1].astype(int)
+
+    # X is transposed so every column becomes an input
+    X = samples[:, :-1].T
+
+    if bias:
+        # add a constant 1 to the input for the bias trick
+        X = np.append(X, np.ones(shape=(1, X.shape[1])), axis=0)
+
+    return X, T
+
+
 # noinspection PyAttributeOutsideInit
 class Perceptron:
     def __init__(self, dims: int):
@@ -56,27 +75,6 @@ class Perceptron:
         misses = np.count_nonzero(E)
         return misses == 0, np.mean(np.square(E)).item(), misses
 
-    @staticmethod
-    def _prepare_data(data: np.ndarray, bias: bool = True) \
-            -> Tuple[np.ndarray, np.ndarray]:
-        # shuffle data
-        samples = data.copy()
-        rand_gen.shuffle(samples)
-
-        # segment data into Matrices
-        T = samples[:, -1].astype(int)
-
-        # X is transposed so every column becomes an input
-        if bias:
-            # add a constant 1 to the input for the bias trick
-            X = np.append(samples[:, :-1],
-                          np.atleast_2d(np.ones(T.shape[0])).T,
-                          axis=1).T
-        else:
-            X = samples[:, :-1].T
-
-        return X, T
-
     def _epoch(self,
                data: np.ndarray,
                eta: float = 1.0,
@@ -86,7 +84,7 @@ class Perceptron:
                                   None] = lambda e, w, m, err: None) \
             -> bool:
 
-        X, T = self._prepare_data(data, bias=bias)
+        X, T = prepare_data(data, bias=bias)
         done, mse, misses = self._batch_learning(X, T, eta) \
             if batch else self._seq_learning(X, T, eta)
 
