@@ -33,13 +33,51 @@ plt.show()
 # +
 # import and instantiate Perceptron implementations
 from perceptron import Perceptron, DeltaPerceptron
+from typing import Optional, Tuple
+    
+class Plotter:
+    def __init__(self, p: Perceptron, data: np.ndarray, eta: float=1.0, bias: bool=True, batch: bool=True):
+        self._p = p
+        self._data = data
+        self._eta = eta
+        self._bias = bias
+        self._batch = batch
+        
+        self._acc = [0]
+        self._err = [np.inf]
+        self._n = data.shape[0]
 
-# plotting function for boundaries
-def plot_decision_boundary(lx, rx, weights, ax, style, label):
-    x1 = np.array([lx, rx])
-    x2 = (-1 * ((weights[0] * x1) + weights[2])) / weights[1]
-    ax.plot(x1, x2, style, label=label)
+    def _callback_fn(self, epochs, weights, misses, mse):
+        self._acc.append((self._n - misses) / self._n)
+        self._err.append(mse)
+        
+        
+    def train_and_plot(self, name: str, style: str, bound_ax: plt.Axes, acc_ax: plt.Axes, bnd_x_range: Tuple[float, float], err_ax: Optional[plt.Axes]=None):
+        self._p.train(self._data, bias=self._bias, batch=self._batch, eta0=self._eta, epoch_cb=self._callback_fn)
+        
+        # plot decision boundary
+        x1 = np.array(bnd_x_range)
+        weights = self._p.weights
+        if not self._bias:
+            # just add a zero to make the calculations work without the bias
+            weights = np.append(weights, 0)
 
+        x2 = (-1 * ((weights[0] * x1) + weights[2])) / weights[1]
+        bound_ax.plot(x1, x2, style, label=name)
+        
+        
+        # plot accuracy
+        acc_ax.plot(range(0, self._p.epochs + 1), self._acc, style, label=name)
+        acc_ax.set_xlabel('Epochs')
+        acc_ax.set_ylabel('Accuracy')
+        
+        # plot MSE:
+        if err_ax is not None:
+            err_ax.plot(range(0, self._p.epochs + 1), self._err, style, label=name)
+            err_ax.set_xlabel('Epochs')
+            err_ax.set_ylabel('MSE')
+        
+        
 # perceptrons
 p = Perceptron(dims=2)
 dp = DeltaPerceptron(dims=2)
@@ -55,19 +93,13 @@ p_data['cls'] = p_data['cls'].apply(lambda c: 0 if c == 'A' else 1).astype('cate
 dp_data = data.copy()
 dp_data['cls'] = dp_data['cls'].apply(lambda c: -1 if c == 'A' else 1).astype('category')
 
-# callback functions for epochs, to store accuracy and plot it
-p_acc = [0]
-dp_acc = [0]
-p_seq_acc = [0]
-dp_seq_acc = [0]
-n = data.shape[0]
 
-# train (batch)
-eta0 = 1e-5
-p.train(p_data.to_numpy(), eta0=eta0, epoch_cb=lambda e, w, m: p_acc.append((n - m) / n))
-dp.train(dp_data.to_numpy(), eta0=eta0, epoch_cb=lambda e, w, m: dp_acc.append((n - m) / n))
-p_seq.train(p_data.to_numpy(), eta0=eta0, batch=False, epoch_cb=lambda e, w, m: p_seq_acc.append((n - m) / n))
-dp_seq.train(dp_data.to_numpy(), eta0=10, batch=False, epoch_cb=lambda e, w, m: dp_seq_acc.append((n - m) / n))
+# plotters
+eta = 1e-5
+p_plot = Plotter(p, p_data.to_numpy(), eta=eta, bias=True, batch=True)
+dp_plot = Plotter(dp, dp_data.to_numpy(), eta=eta, bias=True, batch=True)
+p_seq_plot = Plotter(p_seq, p_data.to_numpy(), eta=eta, bias=True, batch=False)
+dp_seq_plot = Plotter(dp_seq, dp_data.to_numpy(), eta=eta, bias=True, batch=False)
 
 # plotting
 pad = 10
@@ -76,26 +108,51 @@ max_x = data['x1'].max() + pad
 min_y = data['x2'].min() - pad
 max_y = data['x2'].max() + pad
 
-# fig, (ax0, ax1) = plt.subplots(ncols=1, nrows=2)
+fig1, cls_ax = plt.subplots()
+cls_ax.set_title('Decision boundaries')
+sns.scatterplot(x='x1', y='x2', hue=data['cls'].tolist(), data=data, ax=cls_ax)
 
-fig, ax0 = plt.subplots()
-ax0.set_title('Decision boundaries')
-sns.scatterplot(x='x1', y='x2', hue=data['cls'].tolist(), data=data, ax=ax0)
-plot_decision_boundary(min_x, max_x, p.weights, ax0, 'r-', 'Perceptron learning (Batch)')
-plot_decision_boundary(min_x, max_x, dp.weights, ax0, 'g-', 'Delta rule (Batch)')
-plot_decision_boundary(min_x, max_x, p_seq.weights, ax0, 'r--', 'Perceptron learning (Sequential)')
-plot_decision_boundary(min_x, max_x, dp_seq.weights, ax0, 'g--', 'Delta rule (Sequential)')
-ax0.legend()
+fig2, acc_ax = plt.subplots()
+acc_ax.set_title('Accuracy over time (epochs)')
+
+fig3, err_ax = plt.subplots()
+err_ax.set_title('MSE over time (epochs) for delta rule')
+
+p_plot.train_and_plot(name='Learning rule (Batch)', style='r-', bound_ax=cls_ax, acc_ax=acc_ax, bnd_x_range=(min_x, max_x))
+dp_plot.train_and_plot(name='Delta rule (Batch)', style='g-', bound_ax=cls_ax, acc_ax=acc_ax, bnd_x_range=(min_x, max_x), err_ax=err_ax)
+p_seq_plot.train_and_plot(name='Learning rule (Sequential)', style='r--', bound_ax=cls_ax, acc_ax=acc_ax, bnd_x_range=(min_x, max_x))
+dp_seq_plot.train_and_plot(name='Delta rule (Sequential)', style='g--', bound_ax=cls_ax, acc_ax=acc_ax, bnd_x_range=(min_x, max_x), err_ax=err_ax)
+    
+cls_ax.legend()
+acc_ax.legend()
+err_ax.legend()
+
+acc_ax.set_xscale('symlog')
+err_ax.set_xscale('symlog')
+
 plt.show()
+# +
+# tests without bias
+dp_no_bias = DeltaPerceptron(dims=2)
+dp_no_bias_plot = Plotter(dp_no_bias, dp_data.to_numpy(), eta=eta, bias=False, batch=True)
 
-fig, ax1 = plt.subplots()
-ax1.set_title('Accuracy over time (epochs)')
-ax1.plot(range(0, p.epochs + 1), p_acc, 'r-', label='Perceptron learning (Batch)')
-ax1.plot(range(0, dp.epochs + 1), dp_acc, 'g-', label='Delta rule (Batch)')
-ax1.plot(range(0, p_seq.epochs + 1), p_seq_acc, 'r--', label='Perceptron learning (Sequential)')
-ax1.plot(range(0, dp_seq.epochs + 1), dp_seq_acc, 'g--', label='Delta rule (Sequential)')
-ax1.set_xlabel('Epochs')
-ax1.set_ylabel('Accuracy')
-ax1.legend()
-ax1.set_xscale('symlog')
+fig1, cls_ax = plt.subplots()
+cls_ax.set_title('Decision boundary')
+sns.scatterplot(x='x1', y='x2', hue=data['cls'].tolist(), data=data, ax=cls_ax)
+
+fig2, acc_ax = plt.subplots()
+acc_ax.set_title('Accuracy over time (epochs)')
+
+fig3, err_ax = plt.subplots()
+err_ax.set_title('MSE over time (epochs) for delta rule')
+
+dp_no_bias_plot.train_and_plot(name='Delta rule (Batch, No bias)', style='g-', bound_ax=cls_ax, acc_ax=acc_ax, bnd_x_range=(min_x, max_x), err_ax=err_ax)
+    
+cls_ax.legend()
+acc_ax.legend()
+err_ax.legend()
+
+acc_ax.set_xscale('symlog')
+err_ax.set_xscale('symlog')
+
 plt.show()
