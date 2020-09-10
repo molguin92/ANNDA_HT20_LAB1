@@ -40,7 +40,7 @@ def gen_noisy_data(std: float, X: np.ndarray, Y: np.ndarray) \
     Y_noisy = Y + _rand_gen.normal(loc=0.0, scale=std, size=Y.shape)
 
     # save the noisy data for posterior usage
-    np.savez('data/noisy_{std}.npz', X=X_noisy, Y=Y_noisy)
+    np.savez(f'data/noisy_{std}.npz', X=X_noisy, Y=Y_noisy)
 
     return X_noisy, Y_noisy
 
