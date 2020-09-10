@@ -271,7 +271,7 @@ target/
 
 # Jupyter Notebook
 # don't sync notebooks, use Jupytext!
-*.ipynb
+#*.ipynb
 
 # IPython
 
