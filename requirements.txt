@@ -9,3 +9,4 @@ jupytext
 notebook
 ipympl
 scikit-learn
+multiprocess
