@@ -1,55 +1,47 @@
 # preamble, load all required packages and setup some stuff
+import itertools
 import warnings
 from typing import Any, Dict, Tuple
 
+import multiprocess as mproc
 import numpy as np
-from numpy.random import default_rng
 import pandas as pd
-from matplotlib import pyplot as plt
-from mackey_glass import Mackey_Glass
-import pylab
-import seaborn as sns
-from sklearn.neural_network import MLPRegressor
-from sklearn.model_selection import GridSearchCV, train_test_split, \
-    learning_curve
-
-import numpy as np
+from numpy.random import default_rng
 from sklearn.metrics import mean_squared_error
 from sklearn.model_selection import train_test_split
 from sklearn.neural_network import MLPRegressor
 
-import itertools
-import multiprocess as mproc
-import matplotlib.pyplot as plt
-from mpl_toolkits.mplot3d import Axes3D
-from typing import NamedTuple
-
-import sys
+from mackey_glass import Mackey_Glass
 
 _rand_gen = default_rng()
 
 
 def generate_mackey_glass_series(start: int = 301, end: int = 1500 + 1) \
-        -> Tuple[np.ndarray, np.ndarray]:
+        -> pd.DataFrame:
     # generate data
     mackey_glass = Mackey_Glass()
     t_range = range(start, end)
 
-    data = np.array([[mackey_glass.fn(t + d)
-                      for d in [-20, -15, -10, -5, 0, 5]]
+    offsets = [-20, -15, -10, -5, 0, 5]
+    data = np.array([[mackey_glass.fn(t + o)
+                      for o in offsets]
                      for t in t_range])
 
-    # separate into inputs and outputs
-    inputs = data[:, :-1]  # scikit learn works on inputs (samples, features)
-    outputs = data[:, -1]
+    columns = [f'X(t{o})' if o < 0 else f'X(t+{o})' for o in offsets]
+    df = pd.DataFrame(data, columns=columns)
+    df['t'] = list(t_range)
 
-    return inputs, outputs
+    return df
 
 
 def gen_noisy_data(std: float, X: np.ndarray, Y: np.ndarray) \
         -> Tuple[np.ndarray, np.ndarray]:
     X_noisy = X + _rand_gen.normal(loc=0.0, scale=std, size=X.shape)
     Y_noisy = Y + _rand_gen.normal(loc=0.0, scale=std, size=Y.shape)
+
+    # save the noisy data for posterior usage
+    np.savez('data/noisy_{std}.npz', X=X_noisy, Y=Y_noisy)
+
     return X_noisy, Y_noisy
 
 
@@ -116,9 +108,14 @@ def gen_mlp_config(base_params: Dict[str, Any],
 
 if __name__ == '__main__':
     # generate mackey_glass_series, store it for plotting later
-    X, Y = generate_mackey_glass_series()
-    np.save('data/mg_inputs.npy', X)
-    np.save('data/mg_outputs.npy', Y)
+    mg_df = generate_mackey_glass_series()
+    mg_df.to_csv('data/mackey_glass.csv', index=False)
+
+    # turn Mackey-Glass DataFrame into numpy arrays
+    # scikit-learn uses input matrices with rows=samples, columns=features
+    # last column is the input t, we don't want that
+    X = mg_df.to_numpy()[:, :-2]
+    Y = mg_df.to_numpy()[:, -2]
 
     # ranges of our hyperparameters
     base_params = {'early_stopping': True}
