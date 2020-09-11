@@ -17,6 +17,11 @@ class Mackey_Glass:
 
         self._lookup_table = {}
 
+        # precalculate some numbers
+        # doing this sequentially avoids recursion errors
+        for i in range(10000):
+            self.fn(i)
+
     def _lookup_or_calculate(self, t: int) -> float:
         try:
             return self._lookup_table[t]
