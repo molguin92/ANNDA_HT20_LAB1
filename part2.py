@@ -1,15 +1,14 @@
 # preamble, load all required packages and setup some stuff
-import itertools
+import json
 import time
 import warnings
 from typing import Any, Dict, Tuple
 
-import multiprocess as mproc
 import numpy as np
 import pandas as pd
 from numpy.random import default_rng
 from sklearn.metrics import mean_squared_error
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import GridSearchCV, train_test_split
 from sklearn.neural_network import MLPRegressor
 
 from mackey_glass import Mackey_Glass
@@ -129,96 +128,99 @@ if __name__ == '__main__':
     alphas = 10.0 ** -np.arange(1, 7)
 
     # test 2-layer perceptrons
-    two_mlp_layers = [(i,) for i in h_layer_nodes]
-    two_mlp_configs = [gen_mlp_config(params, layers, alpha)
-                       for params, layers, alpha in
-                       itertools.product([base_params], two_mlp_layers, alphas)]
+    mlp_2l_param_grid = dict(
+        **{k: [v] for k, v in base_params.items()},
+        hidden_layer_sizes=[(i,) for i in h_layer_nodes],
+        alpha=alphas
+    )
 
     # evaluate 2-layer perceptrons in parallel
     # note: this will take some time
-    with mproc.Pool() as pool:
-        configs = list(itertools.product(two_mlp_configs, [(X, Y)]))
-        print(f'Evaluating {len(configs)} two-layer perceptrons...')
-        results_2layers = pd.concat(pool.starmap(test_config, configs))
-        print('Done!')
+    mlp_2l_gs = GridSearchCV(MLPRegressor(),
+                             mlp_2l_param_grid,
+                             scoring='neg_mean_squared_error',
+                             n_jobs=-1,
+                             return_train_score=True,
+                             verbose=True)
+    mlp_2l_gs.fit(X, Y)
 
-    # store the results for future use
+    results_2layers = pd.DataFrame(mlp_2l_gs.cv_results_)
     results_2layers.to_csv('data/two_layer_perceptrons_scores.csv', index=False)
 
-    # choose the best 2-layer perceptron as base for our three-layer
-    # we do this by minimizing the MSE
-    mse_means_2l = results_2layers.groupby(['alpha', 'layer0_nodes']).mean()
-    alpha_2layers, layer0_nodes = mse_means_2l['mse'].idxmin()
-
+    # choose the best 2-layer perceptron as base for our 3-layer
+    # best_2l_mlp = mlp_2l_gs.best_estimator_
+    mlp_2l_params = mlp_2l_gs.best_params_.copy()
+    alpha_2layers = mlp_2l_params['alpha']
+    layer0_nodes = mlp_2l_params['hidden_layer_sizes'][0]
     print('Best two-layer perceptron found: '
           f'alpha {alpha_2layers}, hidden nodes: {layer0_nodes}')
 
+    # store the best two-layer perceptron params as a json for future use
+    with open('data/best_2l_mlp.json', 'w') as fp:
+        json.dump(mlp_2l_params, fp)
+
     # prepare the noisy data
     stddevs = [0.03, 0.09, 0.18]
-    data_mdata = [(gen_noisy_data(s, X, Y), {'std': s}) for s in stddevs]
+    noisy_data = [gen_noisy_data(s, X, Y) for s in stddevs]
 
-    # setup parameters for our 3-layer perceptrons
-    three_mlp_layers = [(layer0_nodes, i) for i in h_layer_nodes]
-    three_mlp_configs = [gen_mlp_config(params, layers, alpha)
-                         for params, layers, alpha in
-                         itertools.product([base_params],
-                                           three_mlp_layers,
-                                           alphas)]
+    # test 3-layer perceptrons
+    mlp_3l_param_grid = dict(
+        **{k: [v] for k, v in base_params.items()},
+        hidden_layer_sizes=[(layer0_nodes, i) for i in h_layer_nodes],
+        alpha=alphas
+    )
 
-    # evaluate all our three-layer configs
-    with mproc.Pool() as pool:
-        configs = [(mlp_params, data, mdata)
-                   for mlp_params, (data, mdata) in
-                   itertools.product(three_mlp_configs, data_mdata)]
-        print(f'Evaluating {len(configs)} three-layer perceptrons...')
-        results_3layers = pd.concat(pool.starmap(test_config, configs))
-        print('Done!')
+    gs = GridSearchCV(MLPRegressor(),
+                      mlp_3l_param_grid,
+                      scoring='neg_mean_squared_error',
+                      n_jobs=-1,
+                      return_train_score=True,
+                      verbose=True)
 
-    # finally, store the results for future use
+    results_3layers = []
+    mlp_3l_params_per_std = {}
+    for std, (X_noisy, Y_noisy) in zip(stddevs, noisy_data):
+        # evaluate 3-layer perceptrons in parallel
+        # note: this will take some time
+        gs.fit(X_noisy, Y_noisy)
+        results = pd.DataFrame(gs.cv_results_)
+        results['noise_std'] = std
+        results_3layers.append(results)
+        mlp_3l_params = gs.best_params_.copy()
+        mlp_3l_params_per_std[std] = mlp_3l_params
+        alpha_3layers = mlp_3l_params['alpha']
+        layer1_nodes = mlp_3l_params['hidden_layer_sizes'][1]
+
+        print(f'Best three-layer perceptron found '
+              f'(for noisy data with std {std}): '
+              f'alpha {alpha_2layers}, '
+              f'hidden nodes in second layer: {layer1_nodes}')
+
+        # store the best three-layer perceptrons params as a jsons for future
+        # use
+        with open(f'data/best_3l_mlp_std{std}.json', 'w') as fp:
+            json.dump(mlp_3l_params, fp)
+
+    results_3layers = pd.concat(results_3layers)
     results_3layers.to_csv('data/three_layer_perceptrons_scores.csv',
                            index=False)
 
-    # find the best 3-layer MLP (same way as above, minimizing the MSE,
-    # but now we index by alpha and the number of nodes in the second hidden
-    # layer)
-    mse_means_3l = results_3layers.groupby(['alpha', 'layer1_nodes']).mean()
-    alpha_3layers, layer1_nodes = mse_means_3l['mse'].idxmin()
+    # compare 2- and 3-layer estimators on noisy data
 
-    # compare the best 2-layer MLP and 3-layer MLP on noisy data (std = 0.09)
-    # build the estimators
-    # mlp_2layers = MLPRegressor(**base_params,
-    #                            alpha=alpha_2layers,
-    #                            hidden_layer_sizes=(layer0_nodes,))
-    # mlp_3layers = MLPRegressor(**base_params,
-    #                            alpha=alpha_3layers,
-    #                            hidden_layer_sizes=(layer0_nodes,
-    #                            layer1_nodes))
+    param_grid_2v3 = [
+        {k: [v] for k, v in mlp_2l_params.items()},
+        {k: [v] for k, v in mlp_3l_params_per_std[0.09].items()},
+    ]
 
-    # prepare the data
-    (X_noisy_009, Y_noisy_009), mdata = data_mdata[1]
-    assert np.isclose(mdata['std'], 0.09)
+    gs = GridSearchCV(MLPRegressor(),
+                      param_grid_2v3,
+                      scoring='neg_mean_squared_error',
+                      n_jobs=-1,
+                      return_train_score=True,
+                      verbose=True)
 
-    # run a set of tests on different random train/test splits to get some
-    # statistical significance... (again in parallel)
-
-    with mproc.Pool() as pool:
-        configs = [
-            (dict(**base_params,
-                  alpha=alpha_2layers,
-                  hidden_layer_sizes=(layer0_nodes,)),
-             (X_noisy_009, Y_noisy_009),
-             {'n_layers': 2}),
-            (dict(**base_params,
-                  alpha=alpha_3layers,
-                  hidden_layer_sizes=(layer0_nodes, layer1_nodes)),
-             (X_noisy_009, Y_noisy_009),
-             {'n_layers': 3}),
-        ]
-        print(f'Comparing best 2- and 3- layer perceptrons on noisy data...')
-        results_2v3_df = pd.concat(pool.starmap(test_config, configs))
-        print('Done!')
-
+    gs.fit(*noisy_data[1])  # [1] is the index for std=0.09
+    results_2v3_df = pd.DataFrame(gs.cv_results_)
     # store comparison data
     results_2v3_df.to_csv('data/2v3_noisy.0.09.csv', index=False)
-
     # done!
