@@ -219,6 +219,6 @@ if __name__ == '__main__':
         print('Done!')
 
     # store comparison data
-    results_2v3_df.to_csv('data/2v3_noisy.0.09.csv')
+    results_2v3_df.to_csv('data/2v3_noisy.0.09.csv', index=False)
 
     # done!
