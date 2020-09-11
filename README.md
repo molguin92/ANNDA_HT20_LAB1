@@ -35,8 +35,8 @@
    
 4. Compile Jupyter (some plugins require this step, sorry). This step requires you to have `nodejs` on your system, [which you can get from here](https://nodejs.org/en/download/).
    ```bash
-   jupyter nbextension install --py jupytext [--user]
-   jupyter nbextension enable --py jupytext [--user]
+   jupyter nbextension install --py jupytext
+   jupyter nbextension enable --py jupytext
    jupyter lab build
    ```
    

@@ -1,5 +1,6 @@
 # preamble, load all required packages and setup some stuff
 import itertools
+import time
 import warnings
 from typing import Any, Dict, Tuple
 
@@ -66,6 +67,7 @@ def test_config(mlp_params: Dict,
     X, Y = data
 
     mse = np.zeros(n_iter)
+    train_times = np.zeros(n_iter)
     mlp = MLPRegressor()
     mlp.set_params(**mlp_params)
 
@@ -78,14 +80,18 @@ def test_config(mlp_params: Dict,
             X_train, X_test, y_train, y_test = train_test_split(X, Y)
 
             # train the estimator
+            # time this for analysis
+            ti = time.monotonic()
             mlp.fit(X_train, y_train)
+            dt = time.monotonic() - ti
 
             # get the MSE for the testing data
             # store the result
             y_pred = mlp.predict(X_test)
             mse[i] = mean_squared_error(y_test, y_pred)
+            train_times[i] = dt
 
-    result = pd.DataFrame({'mse': mse})
+    result = pd.DataFrame({'mse': mse, 'training_time': train_times})
     for layer, nodes in enumerate(mlp_params['hidden_layer_sizes']):
         result[f'layer{layer}_nodes'] = nodes
     result['alpha'] = mlp_params['alpha']
@@ -133,18 +139,19 @@ if __name__ == '__main__':
     with mproc.Pool() as pool:
         configs = list(itertools.product(two_mlp_configs, [(X, Y)]))
         print(f'Evaluating {len(configs)} two-layer perceptrons...')
-        results = pd.concat(pool.starmap(test_config, configs))
+        results_2layers = pd.concat(pool.starmap(test_config, configs))
         print('Done!')
 
     # store the results for future use
-    results.to_csv('data/two_layer_perceptrons_scores.csv', index=False)
+    results_2layers.to_csv('data/two_layer_perceptrons_scores.csv', index=False)
 
     # choose the best 2-layer perceptron as base for our three-layer
-    mse_means = results.groupby(['alpha', 'layer0_nodes']).mean()
-    alpha, layer0_nodes = mse_means['mse'].idxmin()
+    # we do this by minimizing the MSE
+    mse_means_2l = results_2layers.groupby(['alpha', 'layer0_nodes']).mean()
+    alpha_2layers, layer0_nodes = mse_means_2l['mse'].idxmin()
 
     print('Best two-layer perceptron found: '
-          f'alpha {alpha}, hidden nodes: {layer0_nodes}')
+          f'alpha {alpha_2layers}, hidden nodes: {layer0_nodes}')
 
     # prepare the noisy data
     stddevs = [0.03, 0.09, 0.18]
@@ -164,8 +171,54 @@ if __name__ == '__main__':
                    for mlp_params, (data, mdata) in
                    itertools.product(three_mlp_configs, data_mdata)]
         print(f'Evaluating {len(configs)} three-layer perceptrons...')
-        results = pd.concat(pool.starmap(test_config, configs))
+        results_3layers = pd.concat(pool.starmap(test_config, configs))
         print('Done!')
 
     # finally, store the results for future use
-    results.to_csv('data/three_layer_perceptrons_scores.csv', index=False)
+    results_3layers.to_csv('data/three_layer_perceptrons_scores.csv',
+                           index=False)
+
+    # find the best 3-layer MLP (same way as above, minimizing the MSE,
+    # but now we index by alpha and the number of nodes in the second hidden
+    # layer)
+    mse_means_3l = results_3layers.groupby(['alpha', 'layer1_nodes']).mean()
+    alpha_3layers, layer1_nodes = mse_means_3l['mse'].idxmin()
+
+    # compare the best 2-layer MLP and 3-layer MLP on noisy data (std = 0.09)
+    # build the estimators
+    # mlp_2layers = MLPRegressor(**base_params,
+    #                            alpha=alpha_2layers,
+    #                            hidden_layer_sizes=(layer0_nodes,))
+    # mlp_3layers = MLPRegressor(**base_params,
+    #                            alpha=alpha_3layers,
+    #                            hidden_layer_sizes=(layer0_nodes,
+    #                            layer1_nodes))
+
+    # prepare the data
+    (X_noisy_009, Y_noisy_009), mdata = data_mdata[1]
+    assert np.isclose(mdata['std'], 0.09)
+
+    # run a set of tests on different random train/test splits to get some
+    # statistical significance... (again in parallel)
+
+    with mproc.Pool() as pool:
+        configs = [
+            (dict(**base_params,
+                  alpha=alpha_2layers,
+                  hidden_layer_sizes=(layer0_nodes,)),
+             (X_noisy_009, Y_noisy_009),
+             {'n_layers': 2}),
+            (dict(**base_params,
+                  alpha=alpha_3layers,
+                  hidden_layer_sizes=(layer0_nodes, layer1_nodes)),
+             (X_noisy_009, Y_noisy_009),
+             {'n_layers': 3}),
+        ]
+        print(f'Comparing best 2- and 3- layer perceptrons on noisy data...')
+        results_2v3_df = pd.concat(pool.starmap(test_config, configs))
+        print('Done!')
+
+    # store comparison data
+    results_2v3_df.to_csv('data/2v3_noisy.0.09.csv')
+
+    # done!
